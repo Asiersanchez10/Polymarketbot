@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polymarket Arbitrage Bot</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <style>
+    :root {
+      --accent: #7c3aed;
+      --accent-light: #a78bfa;
+      --green: #10b981;
+      --red: #ef4444;
+      --card-bg: #1e1e2e;
+      --border: rgba(255,255,255,0.08);
+    }
+    body { background: #0f0f1a; font-family: 'Segoe UI', system-ui, sans-serif; }
+    .navbar { background: #1a1a2e !important; border-bottom: 1px solid var(--border); }
+    .navbar-brand { font-weight: 700; letter-spacing: 1px; color: var(--accent-light) !important; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+    .card-header { background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); font-weight: 600; }
+    .stat-card { transition: transform .2s; }
+    .stat-card:hover { transform: translateY(-2px); }
+    .stat-value { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+    .stat-label { font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: #888; }
+    .badge-running { background: var(--green); }
+    .badge-stopped { background: #6b7280; }
+    .badge-mock { background: var(--accent); }
+    .profit { color: var(--green); }
+    .loss { color: var(--red); }
+    .table { font-size: .875rem; }
+    .table th { color: #9ca3af; font-weight: 500; font-size: .75rem; text-transform: uppercase; letter-spacing: .5px; }
+    .table td, .table th { border-color: var(--border); vertical-align: middle; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .status-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.5s infinite; }
+    .status-dot.stopped { background: #6b7280; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+    .chart-container { position: relative; height: 240px; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); }
+    .btn-primary:hover { background: #6d28d9; border-color: #6d28d9; }
+    .btn-danger { background: var(--red); border-color: var(--red); }
+    .opportunity-tag { font-size: .7rem; padding: 2px 8px; border-radius: 999px; }
+    .tag-executed { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+    .tag-pending { background: rgba(251,191,36,.1); color: #fbbf24; border: 1px solid rgba(251,191,36,.3); }
+    #toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999; }
+    .toast { background: #1e1e2e; border: 1px solid var(--border); min-width: 280px; }
+    .section-title { font-size: .65rem; text-transform: uppercase; letter-spacing: 2px; color: #6b7280; margin-bottom: .5rem; }
+    .uptime { font-size: .75rem; color: #6b7280; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark sticky-top px-3">
+  <span class="navbar-brand"><i class="bi bi-graph-up-arrow me-2"></i>Polymarket Arb Bot</span>
+  <div class="d-flex align-items-center gap-2">
+    <span id="mock-badge" class="badge badge-mock d-none">MOCK</span>
+    <span id="status-badge" class="badge badge-stopped">
+      <span id="status-dot" class="status-dot stopped"></span>
+      <span id="status-text">Stopped</span>
+    </span>
+    <button id="btn-start" class="btn btn-primary btn-sm" onclick="startBot()">
+      <i class="bi bi-play-fill me-1"></i>Start
+    </button>
+    <button id="btn-stop" class="btn btn-danger btn-sm d-none" onclick="stopBot()">
+      <i class="bi bi-stop-fill me-1"></i>Stop
+    </button>
+  </div>
+</nav>
+
+<!-- Main -->
+<div class="container-fluid py-4 px-4">
+
+  <!-- Summary cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-label mb-1">Total P&amp;L</div>
+        <div class="stat-value" id="stat-pnl">$0.00</div>
+        <div class="uptime mt-1" id="stat-pnl-sub">--</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-label mb-1">Win Rate</div>
+        <div class="stat-value" id="stat-winrate">0%</div>
+        <div class="uptime mt-1" id="stat-trades-sub">0 trades</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-label mb-1">Open Positions</div>
+        <div class="stat-value" id="stat-positions">0</div>
+        <div class="uptime mt-1" id="stat-exposure">$0 exposure</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-label mb-1">Opps Today</div>
+        <div class="stat-value" id="stat-opps">0</div>
+        <div class="uptime mt-1" id="stat-scans">0 scans</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row: Chart + Risk -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-8">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-activity me-2 text-purple"></i>Portfolio Value Over Time</span>
+          <span class="uptime" id="last-update">--</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="pnl-chart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-header"><i class="bi bi-shield-check me-2"></i>Risk Monitor</div>
+        <div class="card-body">
+          <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="uptime">Exposure</span>
+              <span id="risk-exposure-pct" class="uptime">0%</span>
+            </div>
+            <div class="progress" style="height:6px;">
+              <div id="risk-exposure-bar" class="progress-bar bg-success" style="width:0%"></div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="uptime">Positions</span>
+              <span id="risk-pos-pct" class="uptime">0 / 10</span>
+            </div>
+            <div class="progress" style="height:6px;">
+              <div id="risk-pos-bar" class="progress-bar bg-info" style="width:0%"></div>
+            </div>
+          </div>
+          <hr style="border-color:var(--border);">
+          <div class="row text-center g-2">
+            <div class="col-6">
+              <div class="section-title">Portfolio</div>
+              <div id="risk-portfolio" class="fw-semibold">$0</div>
+            </div>
+            <div class="col-6">
+              <div class="section-title">Balance</div>
+              <div id="risk-balance" class="fw-semibold">$0</div>
+            </div>
+            <div class="col-6">
+              <div class="section-title">Min Profit</div>
+              <div id="risk-min-profit" class="fw-semibold">0.5%</div>
+            </div>
+            <div class="col-6">
+              <div class="section-title">Fee Rate</div>
+              <div id="risk-fee" class="fw-semibold">2%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Opportunities -->
+  <div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-lightning-charge me-2 text-warning"></i>Recent Arbitrage Opportunities</span>
+      <button class="btn btn-outline-secondary btn-sm" onclick="loadOpportunities()">
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover mb-0">
+          <thead>
+            <tr>
+              <th>Market</th>
+              <th>YES</th>
+              <th>NO</th>
+              <th>Spread</th>
+              <th>Est. Profit</th>
+              <th>Status</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="opps-tbody">
+            <tr><td colspan="7" class="text-center text-muted py-4">No opportunities detected yet</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row: Positions + Trades -->
+  <div class="row g-3">
+    <div class="col-md-5">
+      <div class="card h-100">
+        <div class="card-header"><i class="bi bi-wallet2 me-2"></i>Open Positions</div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr><th>#</th><th>Market</th><th>Cost</th><th>Exp. Profit</th><th>Age</th></tr>
+              </thead>
+              <tbody id="positions-tbody">
+                <tr><td colspan="5" class="text-center text-muted py-4">No open positions</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-7">
+      <div class="card h-100">
+        <div class="card-header"><i class="bi bi-clock-history me-2"></i>Trade History</div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr><th>#</th><th>Market</th><th>Cost</th><th>Profit</th><th>Status</th><th>Time</th></tr>
+              </thead>
+              <tbody id="trades-tbody">
+                <tr><td colspan="6" class="text-center text-muted py-4">No trades yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+// ─── Chart ───────────────────────────────────────────────────────────────────
+const ctx = document.getElementById('pnl-chart').getContext('2d');
+const chartData = { labels: [], datasets: [{
+  label: 'Portfolio Value ($)',
+  data: [],
+  borderColor: '#7c3aed',
+  backgroundColor: 'rgba(124,58,237,0.08)',
+  fill: true,
+  tension: 0.4,
+  pointRadius: 2,
+  borderWidth: 2,
+}]};
+const pnlChart = new Chart(ctx, {
+  type: 'line',
+  data: chartData,
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', maxTicksLimit: 8 }},
+      y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', callback: v => '$'+v.toFixed(2) }},
+    }
+  }
+});
+
+function updateChart(history) {
+  if (!history || history.length === 0) return;
+  chartData.labels = history.map(h => {
+    const d = new Date(h.timestamp);
+    return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  });
+  chartData.datasets[0].data = history.map(h => h.portfolio_value);
+  pnlChart.update('none');
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let isRunning = false;
+
+// ─── API helpers ─────────────────────────────────────────────────────────────
+async function apiFetch(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+async function apiPost(url) {
+  const r = await fetch(url, { method: 'POST' });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ─── Bot control ─────────────────────────────────────────────────────────────
+async function startBot() {
+  try {
+    await apiPost('/api/bot/start');
+    showToast('Bot started', 'success');
+    refreshAll();
+  } catch(e) { showToast('Failed to start bot: '+e.message, 'danger'); }
+}
+
+async function stopBot() {
+  try {
+    await apiPost('/api/bot/stop');
+    showToast('Bot stopped', 'warning');
+    refreshAll();
+  } catch(e) { showToast('Failed to stop bot: '+e.message, 'danger'); }
+}
+
+// ─── Data loaders ─────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const d = await apiFetch('/api/stats');
+    const live = d.live || {};
+    const snap = d.snapshot || {};
+    const cfg = d.config || {};
+
+    // Status
+    isRunning = live.running || false;
+    const dot = document.getElementById('status-dot');
+    const badge = document.getElementById('status-badge');
+    const txt = document.getElementById('status-text');
+    dot.className = 'status-dot ' + (isRunning ? 'running' : 'stopped');
+    badge.className = 'badge ' + (isRunning ? 'badge-running' : 'badge-stopped');
+    txt.textContent = isRunning ? 'Running' : 'Stopped';
+    document.getElementById('btn-start').classList.toggle('d-none', isRunning);
+    document.getElementById('btn-stop').classList.toggle('d-none', !isRunning);
+
+    // Mock badge
+    const mockBadge = document.getElementById('mock-badge');
+    if (cfg.mock_mode) mockBadge.classList.remove('d-none');
+    else mockBadge.classList.add('d-none');
+
+    // P&L
+    const pnl = live.total_pnl ?? snap.total_pnl ?? 0;
+    const pnlEl = document.getElementById('stat-pnl');
+    pnlEl.textContent = '$' + Math.abs(pnl).toFixed(4);
+    pnlEl.className = 'stat-value ' + (pnl >= 0 ? 'profit' : 'loss');
+    document.getElementById('stat-pnl-sub').textContent = pnl >= 0 ? 'Net gain' : 'Net loss';
+
+    // Win rate
+    const total = live.total_trades ?? 0;
+    const wins = live.winning_trades ?? 0;
+    const wr = total > 0 ? (wins/total*100).toFixed(1) : '0';
+    document.getElementById('stat-winrate').textContent = wr + '%';
+    document.getElementById('stat-trades-sub').textContent = total + ' trades closed';
+
+    // Positions
+    document.getElementById('stat-positions').textContent = live.open_positions ?? 0;
+    document.getElementById('stat-exposure').textContent = '$'+(live.total_exposure ?? 0).toFixed(2)+' exposure';
+
+    // Opportunities
+    document.getElementById('stat-opps').textContent = d.opportunities_today ?? 0;
+    document.getElementById('stat-scans').textContent = (live.scan_count ?? 0) + ' scans';
+
+    // Risk panel
+    const portfolioVal = live.portfolio_value ?? cfg.initial_portfolio ?? 0;
+    const exposure = live.total_exposure ?? 0;
+    const exposurePct = portfolioVal > 0 ? (exposure/portfolioVal*100) : 0;
+    const maxConcurrent = cfg.max_concurrent_positions ?? 10;
+    const openPos = live.open_positions ?? 0;
+    document.getElementById('risk-exposure-pct').textContent = exposurePct.toFixed(1)+'%';
+    document.getElementById('risk-exposure-bar').style.width = Math.min(exposurePct,100)+'%';
+    document.getElementById('risk-exposure-bar').className = 'progress-bar ' +
+      (exposurePct > 70 ? 'bg-danger' : exposurePct > 40 ? 'bg-warning' : 'bg-success');
+    document.getElementById('risk-pos-pct').textContent = openPos+' / '+maxConcurrent;
+    document.getElementById('risk-pos-bar').style.width = (openPos/maxConcurrent*100)+'%';
+    document.getElementById('risk-portfolio').textContent = '$'+portfolioVal.toFixed(2);
+    document.getElementById('risk-balance').textContent = '$'+(live.balance ?? portfolioVal).toFixed(2);
+    document.getElementById('risk-min-profit').textContent = (cfg.min_profit_pct ?? 0.5)+'%';
+    document.getElementById('risk-fee').textContent = ((cfg.fee_rate ?? 0.02)*100).toFixed(1)+'%';
+
+    // Last update
+    document.getElementById('last-update').textContent = 'Updated '+new Date().toLocaleTimeString();
+
+    // Chart
+    if (d.pnl_history && d.pnl_history.length > 0) updateChart(d.pnl_history);
+
+  } catch(e) { console.error('loadStats:', e); }
+}
+
+async function loadOpportunities() {
+  try {
+    const d = await apiFetch('/api/opportunities?limit=20');
+    const tbody = document.getElementById('opps-tbody');
+    if (!d.opportunities || d.opportunities.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No opportunities detected yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.opportunities.map(o => {
+      const pct = (o.potential_profit_pct||0).toFixed(3);
+      const tag = o.executed
+        ? '<span class="opportunity-tag tag-executed">Executed</span>'
+        : '<span class="opportunity-tag tag-pending">Pending</span>';
+      const t = o.detected_at ? new Date(o.detected_at).toLocaleTimeString() : '--';
+      const q = (o.question||'').substring(0,50)+(o.question&&o.question.length>50?'…':'');
+      return `<tr>
+        <td title="${o.question||''}">${q}</td>
+        <td>${(o.yes_price||0).toFixed(4)}</td>
+        <td>${(o.no_price||0).toFixed(4)}</td>
+        <td>${(o.spread||0).toFixed(4)}</td>
+        <td class="${parseFloat(pct)>0?'profit':''}">${pct}%</td>
+        <td>${tag}</td>
+        <td class="uptime">${t}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('loadOpportunities:', e); }
+}
+
+async function loadPositions() {
+  try {
+    const d = await apiFetch('/api/positions');
+    const tbody = document.getElementById('positions-tbody');
+    if (!d.positions || d.positions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No open positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.positions.map(p => {
+      const ep = (p.expected_profit||p.unrealised_pnl||0);
+      const q = (p.question||'').substring(0,35)+(p.question&&p.question.length>35?'…':'');
+      const opened = p.opened_at ? new Date(p.opened_at) : null;
+      const age = opened ? timeSince(opened) : '--';
+      return `<tr>
+        <td class="uptime">#${p.id||p.trade_id||'?'}</td>
+        <td title="${p.question||''}">${q}</td>
+        <td>$${(p.total_cost||0).toFixed(2)}</td>
+        <td class="${ep>=0?'profit':'loss'}">$${ep.toFixed(4)}</td>
+        <td class="uptime">${age}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('loadPositions:', e); }
+}
+
+async function loadTrades() {
+  try {
+    const d = await apiFetch('/api/trades?limit=50');
+    const tbody = document.getElementById('trades-tbody');
+    if (!d.trades || d.trades.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No trades yet</td></tr>';
+      return;
+    }
+    tbody.innerHTML = d.trades.map(t => {
+      const profit = t.actual_profit ?? t.expected_profit ?? 0;
+      const pClass = profit >= 0 ? 'profit' : 'loss';
+      const statusCls = t.status === 'closed' ? 'text-success' : t.status === 'cancelled' ? 'text-danger' : 'text-warning';
+      const q = (t.question||'').substring(0,40)+(t.question&&t.question.length>40?'…':'');
+      const ts = t.opened_at ? new Date(t.opened_at).toLocaleString() : '--';
+      return `<tr>
+        <td class="uptime">#${t.id}</td>
+        <td title="${t.question||''}">${q}</td>
+        <td>$${(t.total_cost||0).toFixed(2)}</td>
+        <td class="${pClass}">$${profit.toFixed(4)}</td>
+        <td class="${statusCls}">${t.status||'--'}</td>
+        <td class="uptime">${ts}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error('loadTrades:', e); }
+}
+
+function timeSince(date) {
+  const s = Math.floor((new Date() - date) / 1000);
+  if (s < 60) return s+'s';
+  if (s < 3600) return Math.floor(s/60)+'m';
+  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+}
+
+async function refreshAll() {
+  await Promise.all([loadStats(), loadOpportunities(), loadPositions(), loadTrades()]);
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, type='info') {
+  const id = 'toast-'+Date.now();
+  const colors = {success:'#10b981',danger:'#ef4444',warning:'#f59e0b',info:'#6366f1'};
+  const html = `<div id="${id}" class="toast show mb-2" style="border-left:3px solid ${colors[type]||'#6366f1'}">
+    <div class="toast-body d-flex justify-content-between">
+      <span>${msg}</span>
+      <button onclick="document.getElementById('${id}').remove()" class="btn-close btn-close-white ms-2"></button>
+    </div>
+  </div>`;
+  document.getElementById('toast-container').insertAdjacentHTML('beforeend', html);
+  setTimeout(() => { const el = document.getElementById(id); if(el) el.remove(); }, 5000);
+}
+
+// ─── SSE ──────────────────────────────────────────────────────────────────────
+function connectSSE() {
+  const es = new EventSource('/api/events');
+  es.onmessage = async (e) => {
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.type === 'ping') return;
+      if (ev.type === 'trade_opened') {
+        showToast('Trade opened: '+(ev.data.question||'').substring(0,40), 'success');
+        await Promise.all([loadPositions(), loadTrades(), loadStats()]);
+      } else if (ev.type === 'trade_closed') {
+        const p = ev.data.actual_profit ?? 0;
+        showToast('Trade closed | Profit: $'+p.toFixed(4), p>=0?'success':'danger');
+        await Promise.all([loadPositions(), loadTrades(), loadStats()]);
+      } else if (ev.type === 'opportunities') {
+        await Promise.all([loadOpportunities(), loadStats()]);
+      } else if (ev.type === 'stats_update') {
+        await loadStats();
+      } else if (ev.type === 'alert') {
+        showToast((ev.data.message||'Alert'), ev.data.level==='critical'?'danger':'warning');
+      } else if (ev.type === 'bot_started' || ev.type === 'bot_stopped') {
+        await loadStats();
+      }
+    } catch(err) { console.error('SSE parse error:', err); }
+  };
+  es.onerror = () => setTimeout(connectSSE, 3000);
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+refreshAll();
+connectSSE();
+setInterval(refreshAll, 10000);  // fallback polling every 10s
+</script>
+</body>
+</html>
