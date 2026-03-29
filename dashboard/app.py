@@ -26,9 +26,9 @@ _event_queue: Optional[asyncio.Queue] = None
 app = FastAPI(title="Polymarket Arbitrage Bot", version="1.0.0")
 
 # Templates
-import os
-_template_dir = os.path.join(os.path.dirname(__file__), "templates")
-templates = Jinja2Templates(directory=_template_dir)
+from pathlib import Path
+_template_dir = Path(__file__).resolve().parent / "templates"
+templates = Jinja2Templates(directory=str(_template_dir))
 
 # ─── Dependency injection helpers ────────────────────────────────────────────
 
