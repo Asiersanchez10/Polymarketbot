@@ -9,10 +9,10 @@ import logging
 import time
 from typing import AsyncGenerator, Optional
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from bot import database as db
 from config import config
@@ -25,10 +25,7 @@ _event_queue: Optional[asyncio.Queue] = None
 
 app = FastAPI(title="Polymarket Arbitrage Bot", version="1.0.0")
 
-# Templates
-from pathlib import Path
-_template_dir = Path(__file__).resolve().parent / "templates"
-templates = Jinja2Templates(directory=str(_template_dir))
+_html_path = Path(__file__).resolve().parent / "templates" / "index.html"
 
 # ─── Dependency injection helpers ────────────────────────────────────────────
 
@@ -48,7 +45,7 @@ def get_engine():
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return HTMLResponse(content=_html_path.read_text(encoding="utf-8"))
 
 
 # ─── API: Bot Control ─────────────────────────────────────────────────────────
